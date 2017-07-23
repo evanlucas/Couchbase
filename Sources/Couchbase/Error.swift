@@ -105,7 +105,6 @@ public enum CouchbaseErrorCode: UInt32 {
   case EGENERICCONSTRAINTERR = 0x52
   case ENAMESERVER = 0x53
   case ENOTAUTHORIZED = 0x54
-  
   case EINVALIDJSON = 0x88
 }
 

@@ -81,7 +81,7 @@ public class Bucket {
     guard let cook: UnsafeRawPointer = cookie else {
       return
     }
-    
+
     let c: Cookie = Unmanaged<Cookie>.fromOpaque(cook).takeUnretainedValue()
     
     guard let fn: Callback = self.ops.removeValue(forKey: c.id) else {
