@@ -8,12 +8,12 @@
 import Foundation
 
 public struct GetResponse {
-  let cas: UInt64
-  let key: String
-  let doc: Any
+  public let cas: UInt64
+  public let key: String
+  public let doc: Any
 }
 
 public struct StoreResponse {
-  let cas: UInt64
-  let key: String
+  public let cas: UInt64
+  public let key: String
 }
