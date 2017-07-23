@@ -72,6 +72,17 @@ public class Bucket {
                                    resp: resp)
       }
     }
+
+    lcb_set_remove_callback(self.instance) { (instance, cookie, error, resp) in
+      if let cookie = cookie {
+        let cval = lcb_get_cookie(instance)
+        let this = Unmanaged<Bucket>.fromOpaque(cval!).takeUnretainedValue()
+        this.dispatchRemoveCallback(instance: instance,
+                                    cookie: cookie,
+                                    error: error,
+                                    resp: resp)
+      }
+    }
   }
   
   func dispatchValueCallback(instance: lcb_t?,
@@ -131,6 +142,33 @@ public class Bucket {
     let out: StoreResponse = StoreResponse(cas: cas, key: c.key)
     fn(nil, out)
   }
+
+  func dispatchRemoveCallback(instance: lcb_t?,
+                              cookie: UnsafeRawPointer?,
+                              error: lcb_error_t,
+                              resp: UnsafePointer<lcb_remove_resp_t>?) {
+    guard let cook: UnsafeRawPointer = cookie else {
+      return
+    }
+
+    let c: Cookie = Unmanaged<Cookie>.fromOpaque(cook).takeRetainedValue()
+
+    guard let fn: Callback = self.ops.removeValue(forKey: c.id) else {
+      return
+    }
+
+    let res: lcb_remove_resp_t = resp![0]
+
+    if error != LCB_SUCCESS {
+      fn(makeCouchbaseError(err: error), nil)
+      return
+    }
+
+    let cas = res.v.v0.cas
+
+    let out: RemoveResponse = RemoveResponse(cas: cas, key: c.key)
+    fn(nil, out)
+  }
   
   func decodeDoc(bytes: UnsafeRawPointer, nbytes: Int, flags: UInt32) -> Any {
     let format: CouchbaseFlags = CouchbaseFlags(rawValue: flags & UInt32(0xFF))!
@@ -146,10 +184,6 @@ public class Bucket {
     }
     
     return String(data: data, encoding: .utf8) as Any
-  }
-  
-  func encodeDoc(doc: CBDocument) -> Any {
-    return doc.toJSON() as Any
   }
   
   public func get(key: String, cb: Callback?) {
@@ -189,6 +223,33 @@ public class Bucket {
   
   public func replace(doc: CBDocumentInfo, cb: Callback?) {
     self.store(doc: doc, operation: LCB_REPLACE, cb: cb)
+  }
+
+  public func remove(key: String, cb: Callback?) {
+    var cmd: lcb_CMDREMOVE = lcb_CMDREMOVE()
+    cmd.key.type = LCB_KV_COPY
+    cmd.key.contig.nbytes = key.lengthOfBytes(using: .utf8)
+    let data = key.data(using: .utf8)! as NSData
+    cmd.key.contig.bytes = data.bytes
+
+    let id = UUID()
+    if cb != nil {
+      self.ops[id] = cb
+    }
+
+    let cookie: Cookie = Cookie(id: id, key: key)
+    let context = UnsafeMutableRawPointer(
+      Unmanaged.passRetained(cookie).toOpaque()
+    )
+    let rc: lcb_error_t = lcb_remove3(instance, context, &cmd)
+    if rc != LCB_SUCCESS {
+      if cb != nil {
+        cb!(makeCouchbaseError(err: rc), nil)
+      }
+      return
+    }
+
+    lcb_wait(self.instance)
   }
   
   func store(doc: CBDocumentInfo, operation: lcb_storage_t, cb: Callback?) {

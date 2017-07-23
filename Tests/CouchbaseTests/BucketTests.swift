@@ -22,17 +22,19 @@ class BucketTests: XCTestCase {
   static let allTests = [
     ("testConnectFail", testConnectFail)
   , ("testConnectPass", testConnectPass)
-  , ("testGetFail", testGetFail)
-  , ("testGetPass", testGetPass)
+  , ("testInsert", testInsert)
+  , ("testGet", testGet)
+  , ("testRemove", testRemove)
   , ("testGetNoCallbackPass", testGetNoCallbackPass)
   , ("testGetNoCallbackFail", testGetNoCallbackFail)
-  , ("testInsertFail", testInsertFail)
   ]
-  
-  var bucket: Bucket!
+
+  func getId() -> String {
+    return UUID().uuidString.lowercased()
+  }
   
   func testConnectFail() throws {
-    bucket = Bucket(uri: "couchbases://localhost/migrations")
+    let bucket = Bucket(uri: "couchbases://localhost/migrations")
     defer {
       bucket.disconnect()
     }
@@ -53,64 +55,115 @@ class BucketTests: XCTestCase {
   }
   
   func testConnectPass() throws {
-    bucket = Bucket(uri: "couchbase://localhost/migrations")
+    let bucket = Bucket(uri: "couchbase://localhost/migrations")
     defer {
       bucket.disconnect()
     }
     try bucket.connect()
   }
-  
-  func testInsertFail() throws {
-    bucket = Bucket(uri: "couchbase://localhost/migrations")
-    defer {
-      bucket.disconnect()
-    }
-    try bucket.connect()
-    
-    let doc: Doc = Doc(name: "test")
-    let info: CBDocumentInfo = CBDocumentInfo(key: "123456", doc: doc)
-    bucket.insert(doc: info) { (err, res) in
-      if err == nil {
-        XCTFail("Expected an error to be returned")
-        return
-      }
-      
-      guard let er = err as? CouchbaseError else {
-        XCTFail("Should have been a CouchbaseError")
-        return
-      }
-      
-      XCTAssertEqual(er.code,
-                     CouchbaseErrorCode.EEXIST,
-                     "Error code is EEXIST")
-    }
-  }
-  
-  func testGetFail() throws {
-    bucket = Bucket(uri: "couchbase://localhost/migrations")
-    defer {
-      bucket.disconnect()
-    }
-    try bucket.connect()
-    bucket.get(key: "fasdfasdf") { (err, doc) in
-      if err == nil {
-        XCTFail("expected to get error from GET")
-        return
-      }
-      
-      guard let error = err as? CouchbaseError else {
-        XCTFail("expected to get a CouchbaseError")
-        return
-      }
 
-      XCTAssertEqual(error.code,
-                     CouchbaseErrorCode.ENOENT,
-                     "Error code is ENOENT")
+  func testInsert() throws {
+    let expect = expectation(description: "bucket.insert() pass")
+    let bucket = Bucket(uri: "couchbase://localhost/migrations")
+    try bucket.connect()
+    defer {
+      bucket.disconnect()
+    }
+    let key = getId()
+
+    func insertPass() {
+      let doc: Doc = Doc(name: "test")
+      let info: CBDocumentInfo = CBDocumentInfo(key: key, doc: doc)
+      bucket.insert(doc: info) { (err, res) in
+        XCTAssertNil(err)
+        let res = res as! StoreResponse
+        XCTAssertEqual(res.key, key, "key is on the response")
+        insertAgain()
+      }
+    }
+
+    func insertAgain() {
+      let doc: Doc = Doc(name: "test")
+      let info2: CBDocumentInfo = CBDocumentInfo(key: key, doc: doc)
+      bucket.insert(doc: info2, cb: { (err, res) in
+        XCTAssertNotNil(err)
+        expect.fulfill()
+        if err != nil {
+          let er = err as! CouchbaseError
+
+          XCTAssertEqual(er.code,
+                         CouchbaseErrorCode.EEXIST,
+                         "Error code is EEXIST")
+        }
+      })
+    }
+
+    insertPass()
+    waitForExpectations(timeout: 10) { (err) in
+      XCTAssertNil(err)
+    }
+  }
+
+  func testGet() throws {
+    let pass = expectation(description: "bucket.get() pass")
+    let fail = expectation(description: "bucket.get() fail")
+
+    let bucket = Bucket(uri: "couchbase://localhost/migrations")
+    try bucket.connect()
+    defer {
+      bucket.disconnect()
+    }
+    let key = getId()
+
+    bucket.get(key: getId()) { (err, res) in
+      XCTAssertNotNil(err)
+
+      if err != nil {
+        let er = err as! CouchbaseError
+
+        XCTAssertEqual(er.code,
+                       CouchbaseErrorCode.ENOENT,
+                       "Error code is ENOENT")
+        fail.fulfill()
+      }
+    }
+
+    let doc: Doc = Doc(name: "test")
+    let info: CBDocumentInfo = CBDocumentInfo(key: key, doc: doc)
+    bucket.insert(doc: info) { (err, res) in
+      XCTAssertNil(err)
+
+      bucket.get(key: key, cb: { (err, res) in
+        XCTAssertNil(err)
+
+        if res != nil {
+          let res = res as! GetResponse
+          XCTAssertEqual(res.key, key)
+
+          guard let doc = res.doc as? [String: Any] else {
+            XCTFail("Unable to extract doc")
+            return
+          }
+
+          guard let name = doc["name"] as? String else {
+            XCTFail("Unable to extract name")
+            return
+          }
+
+          XCTAssertEqual(name, "test")
+        }
+
+        pass.fulfill()
+      })
+    }
+
+    waitForExpectations(timeout: 10) { (err) in
+      XCTAssertNil(err)
     }
   }
 
   func testGetNoCallbackPass() throws {
-    bucket = Bucket(uri: "couchbase://localhost/migrations")
+    let bucket = Bucket(uri: "couchbase://localhost/migrations")
     defer {
       bucket.disconnect()
     }
@@ -119,7 +172,7 @@ class BucketTests: XCTestCase {
   }
 
   func testGetNoCallbackFail() throws {
-    bucket = Bucket(uri: "couchbase://localhost/migrations")
+    let bucket = Bucket(uri: "couchbase://localhost/migrations")
     defer {
       bucket.disconnect()
     }
@@ -127,32 +180,49 @@ class BucketTests: XCTestCase {
     bucket.get(key: "fasdfasdf", cb: nil)
   }
 
-  func testGetPass() throws {
-    bucket = Bucket(uri: "couchbase://localhost/migrations")
+  func testRemove() throws {
+    let pass = expectation(description: "bucket.remove() pass")
+    let fail = expectation(description: "bucket.remove() fail")
+    let bucket = Bucket(uri: "couchbase://localhost/migrations")
     defer {
       bucket.disconnect()
     }
     try bucket.connect()
-    bucket.get(key: "123456") { (err, res) in
+
+    let key = getId()
+
+    bucket.remove(key: getId()) { (err, res) in
+      XCTAssertNotNil(err)
+
+      if err != nil {
+        let er = err as! CouchbaseError
+
+        XCTAssertEqual(er.code,
+                       CouchbaseErrorCode.ENOENT,
+                       "Error code is ENOENT")
+        fail.fulfill()
+      }
+    }
+
+    let doc: Doc = Doc(name: "test")
+    let info: CBDocumentInfo = CBDocumentInfo(key: key, doc: doc)
+    bucket.insert(doc: info) { (err, res) in
       XCTAssertNil(err)
 
-      guard let res = res as? GetResponse else {
-        XCTFail("Unable to convert res to GetResponse")
-        return
-      }
-      XCTAssertEqual(res.key, "123456")
+      bucket.remove(key: key, cb: { (err, res) in
+        XCTAssertNil(err)
 
-      guard let doc = res.doc as? [String: Any] else {
-        XCTFail("Unable to extract doc")
-        return
-      }
+        if res != nil {
+          let res = res as! RemoveResponse
+          XCTAssertEqual(res.key, key)
+        }
 
-      guard let name = doc["name"] as? String else {
-        XCTFail("Unable to extract name")
-        return
-      }
+        pass.fulfill()
+      })
+    }
 
-      XCTAssertEqual(name, "test")
+    waitForExpectations(timeout: 10) { (err) in
+      XCTAssertNil(err)
     }
   }
 }

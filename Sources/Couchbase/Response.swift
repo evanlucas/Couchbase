@@ -17,3 +17,8 @@ public struct StoreResponse {
   public let cas: UInt64
   public let key: String
 }
+
+public struct RemoveResponse {
+  public let cas: UInt64
+  public let key: String
+}
