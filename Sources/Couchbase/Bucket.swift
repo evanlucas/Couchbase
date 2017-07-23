@@ -82,7 +82,7 @@ public class Bucket {
       return
     }
 
-    let c: Cookie = Unmanaged<Cookie>.fromOpaque(cook).takeUnretainedValue()
+    let c: Cookie = Unmanaged<Cookie>.fromOpaque(cook).takeRetainedValue()
     
     guard let fn: Callback = self.ops.removeValue(forKey: c.id) else {
       return
@@ -113,7 +113,7 @@ public class Bucket {
       return
     }
     
-    let c: Cookie = Unmanaged<Cookie>.fromOpaque(cook).takeUnretainedValue()
+    let c: Cookie = Unmanaged<Cookie>.fromOpaque(cook).takeRetainedValue()
     
     guard let fn: Callback = self.ops.removeValue(forKey: c.id) else {
       return
@@ -166,7 +166,7 @@ public class Bucket {
     
     let cookie: Cookie = Cookie(id: id, key: key)
     let context = UnsafeMutableRawPointer(
-      Unmanaged.passUnretained(cookie).toOpaque()
+      Unmanaged.passRetained(cookie).toOpaque()
     )
     let rc: lcb_error_t = lcb_get3(instance, context, &cmd)
     if rc != LCB_SUCCESS {
@@ -227,7 +227,7 @@ public class Bucket {
     
     let cookie: Cookie = Cookie(id: id, key: doc.key)
     let context = UnsafeMutableRawPointer(
-      Unmanaged.passUnretained(cookie).toOpaque()
+      Unmanaged.passRetained(cookie).toOpaque()
     )
     
     let rc: lcb_error_t = lcb_store3(instance, context, &cmd)
